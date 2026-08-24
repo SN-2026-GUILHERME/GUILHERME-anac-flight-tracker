@@ -1,1 +1,320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Painel de Voos — SIROS/ANAC</title>
+<style>
+  :root {
+    --bg: #0b0f14;
+    --panel: #121821;
+    --panel-border: #202a37;
+    --text: #e7ecf2;
+    --text-dim: #8b98a9;
+    --accent: #ff8a3d;
+    --accent-dim: #6b4326;
+    --ok: #3ddc84;
+    --warn: #f2c94c;
+    --mono: "JetBrains Mono", "Courier New", monospace;
+  }
 
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    min-height: 100vh;
+  }
+
+  header {
+    padding: 32px 24px 20px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  header h1 {
+    margin: 0 0 4px;
+    font-size: 1.6rem;
+    letter-spacing: -0.02em;
+  }
+
+  header h1 span {
+    color: var(--accent);
+    font-family: var(--mono);
+  }
+
+  header p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+
+  main {
+    max-width: 1000px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  .controls {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .controls select, .controls button {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+  }
+
+  .controls button {
+    cursor: pointer;
+    color: var(--accent);
+    border-color: var(--accent-dim);
+  }
+
+  .controls button:hover {
+    background: var(--accent-dim);
+  }
+
+  #status-msg {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+    font-family: var(--mono);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  thead th {
+    text-align: left;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  tbody td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--panel-border);
+    font-size: 0.9rem;
+  }
+
+  tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 100px;
+    font-size: 0.75rem;
+    font-family: var(--mono);
+  }
+
+  .badge.pousado, .badge.confirmado {
+    background: rgba(61, 220, 132, 0.15);
+    color: var(--ok);
+  }
+
+  .badge.programado {
+    background: rgba(242, 201, 76, 0.15);
+    color: var(--warn);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-dim);
+  }
+
+  footer {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-dim);
+    font-size: 0.8rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Painel de Voos <span>// SIROS·ANAC</span></h1>
+  <p>Dados operacionais consolidados a partir do Supabase</p>
+</header>
+
+<main>
+  <div class="controls">
+    <select id="filtro-aeroporto">
+      <option value="">Todos os aeroportos</option>
+    </select>
+    <button id="btn-atualizar">Atualizar dados</button>
+  </div>
+
+  <div id="status-msg">Carregando voos...</div>
+
+  <div id="tabela-container"></div>
+</main>
+
+<footer>
+  Dados de voos programados via API pública do SIROS/ANAC.
+</footer>
+
+<script>
+  // Preencha com a URL e a chave "anon" (pública) do seu projeto Supabase.
+  // NUNCA coloque a service_role/secret key aqui — este arquivo roda no navegador
+  // de qualquer visitante e o código-fonte é público.
+  const SUPABASE_URL = "https://SEU-PROJETO.supabase.co";
+  const SUPABASE_ANON_KEY = "SUA_ANON_KEY_AQUI";
+
+  /**
+   * Escapa caracteres especiais de HTML para evitar XSS ao inserir
+   * dados vindos do banco diretamente no DOM via innerHTML.
+   */
+  function escapeHtml(valor) {
+    if (valor === null || valor === undefined) return "";
+    return String(valor)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  function formatarData(iso) {
+    if (!iso) return "—";
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    } catch {
+      return escapeHtml(iso);
+    }
+  }
+
+  function renderizarStatus(mensagem) {
+    const statusEl = document.getElementById("status-msg");
+    statusEl.innerHTML = escapeHtml(mensagem);
+  }
+
+  function renderizarTabela(voos) {
+    const container = document.getElementById("tabela-container");
+
+    if (!voos || voos.length === 0) {
+      container.innerHTML = `<div class="empty-state">Nenhum voo encontrado para o filtro selecionado.</div>`;
+      return;
+    }
+
+    const linhas = voos.map((voo) => {
+      const numero = escapeHtml(voo.numero_voo);
+      const companhia = escapeHtml(voo.companhia);
+      const origem = escapeHtml(voo.origem);
+      const destino = escapeHtml(voo.destino);
+      const previsto = escapeHtml(formatarData(voo.horario_previsto));
+      const situacaoTexto = escapeHtml(voo.situacao || "programado");
+      const situacaoClasse = escapeHtml((voo.situacao || "programado").toLowerCase());
+
+      return `
+        <tr>
+          <td>${numero}</td>
+          <td>${companhia}</td>
+          <td>${origem} → ${destino}</td>
+          <td>${previsto}</td>
+          <td><span class="badge ${situacaoClasse}">${situacaoTexto}</span></td>
+        </tr>
+      `;
+    }).join("");
+
+    container.innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Voo</th>
+            <th>Companhia</th>
+            <th>Rota</th>
+            <th>Horário previsto</th>
+            <th>Situação</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${linhas}
+        </tbody>
+      </table>
+    `;
+  }
+
+  async function carregarVoos(icaoFiltro) {
+    renderizarStatus("Carregando voos...");
+
+    let url = `${SUPABASE_URL}/rest/v1/voos?select=*&order=horario_previsto.asc&limit=100`;
+    if (icaoFiltro) {
+      url += `&icao_aeroporto=eq.${encodeURIComponent(icaoFiltro)}`;
+    }
+
+    try {
+      const resp = await fetch(url, {
+        headers: {
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Erro HTTP ${resp.status}`);
+      }
+
+      const voos = await resp.json();
+      renderizarStatus(`${voos.length} voo(s) carregado(s).`);
+      renderizarTabela(voos);
+    } catch (erro) {
+      renderizarStatus(`Falha ao carregar dados: ${erro.message}`);
+      renderizarTabela([]);
+    }
+  }
+
+  async function popularFiltroAeroportos() {
+    try {
+      const resp = await fetch("data/airports.json");
+      const aeroportos = await resp.json();
+      const select = document.getElementById("filtro-aeroporto");
+
+      aeroportos.forEach((aero) => {
+        const opt = document.createElement("option");
+        opt.value = aero.icao;
+        opt.textContent = `${aero.icao} — ${aero.cidade}`;
+        select.appendChild(opt);
+      });
+    } catch (erro) {
+      console.warn("Não foi possível carregar data/airports.json", erro);
+    }
+  }
+
+  document.getElementById("btn-atualizar").addEventListener("click", () => {
+    const icao = document.getElementById("filtro-aeroporto").value;
+    carregarVoos(icao);
+  });
+
+  document.getElementById("filtro-aeroporto").addEventListener("change", (e) => {
+    carregarVoos(e.target.value);
+  });
+
+  popularFiltroAeroportos();
+  carregarVoos("");
+</script>
+
+</body>
+</html>
