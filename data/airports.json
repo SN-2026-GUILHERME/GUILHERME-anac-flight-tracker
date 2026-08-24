@@ -1,1 +1,11 @@
+[
+  { "icao": "SBCA", "iata": "VCP-ALT", "nome": "Aeroporto de Cascavel", "cidade": "Cascavel", "uf": "PR" },
+  { "icao": "SBCT", "iata": "CWB", "nome": "Aeroporto Afonso Pena", "cidade": "Curitiba", "uf": "PR" },
+  { "icao": "SBGR", "iata": "GRU", "nome": "Aeroporto de Guarulhos", "cidade": "Guarulhos", "uf": "SP" },
+  { "icao": "SBSP", "iata": "CGH", "nome": "Aeroporto de Congonhas", "cidade": "São Paulo", "uf": "SP" },
+  { "icao": "SBGL", "iata": "GIG", "nome": "Aeroporto Galeão", "cidade": "Rio de Janeiro", "uf": "RJ" },
+  { "icao": "SBBR", "iata": "BSB", "nome": "Aeroporto de Brasília", "cidade": "Brasília", "uf": "DF" },
+  { "icao": "SBFL", "iata": "FLN", "nome": "Aeroporto Hercílio Luz", "cidade": "Florianópolis", "uf": "SC" },
+  { "icao": "SBPA", "iata": "POA", "nome": "Aeroporto Salgado Filho", "cidade": "Porto Alegre", "uf": "RS" }
+]
 
