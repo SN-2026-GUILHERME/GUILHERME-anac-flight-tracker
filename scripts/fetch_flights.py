@@ -56,10 +56,6 @@ def buscar_voos_siros(data_referencia: str) -> list:
         log(f"ERRO ao consultar a API do SIROS: {exc}")
         return []
 
-    conteudo = resposta.text
-
-    # A API do SIROS pode retornar o corpo como uma string JSON (JSON dentro de
-    # JSON) ou como uma lista de objetos diretamente. Tratamos os dois casos.
     try:
         dados = resposta.json()
     except ValueError:
@@ -178,6 +174,10 @@ def main() -> int:
         brutos = buscar_voos_siros(data_referencia)
         total_api += len(brutos)
 
+        if brutos:
+            log(f"DEBUG — campos do primeiro registro recebido: {list(brutos[0].keys())}")
+            log(f"DEBUG — exemplo de registro completo: {json.dumps(brutos[0], ensure_ascii=False)}")
+
         normalizados = [normalizar_registro(r) for r in brutos]
         for r in normalizados:
             r["icao_aeroporto"] = icao
@@ -215,4 +215,3 @@ def main() -> int:
 if __name__ == "__main__":
     codigo_saida = main()
     sys.exit(codigo_saida)
-
