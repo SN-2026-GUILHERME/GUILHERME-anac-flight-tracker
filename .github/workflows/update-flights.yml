@@ -1,1 +1,37 @@
+name: Pipeline SIROS → Supabase
 
+on:
+  schedule:
+    # Roda a cada 6 horas (horário UTC)
+    - cron: "0 */6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-siros-supabase
+  cancel-in-progress: true
+
+jobs:
+  fetch-and-insert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout do código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependências
+        run: pip install requests
+
+      - name: Buscar voos e enviar ao Supabase
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          AIRPORTS: "SBCA"
+        run: python scripts/fetch_flights.py
