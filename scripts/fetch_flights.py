@@ -41,20 +41,31 @@ def obter_data_referencia() -> str:
     return hoje.strftime("%d%m%Y")
 
 
-def buscar_voos_siros(data_referencia: str) -> list:
+def buscar_voos_siros(data_referencia: str, tentativas: int = 3) -> list:
     """
     Consulta a API do SIROS/ANAC para a data de referência informada.
+    Tenta novamente em caso de timeout, pois a API pública da ANAC costuma
+    apresentar lentidão/instabilidade pontual.
     Retorna uma lista de dicionários (um por voo) ou lista vazia em caso de falha.
     """
     url = f"{SIROS_BASE_URL}?dataReferencia={data_referencia}"
-    log(f"Consultando SIROS: {url}")
 
-    try:
-        resposta = requests.get(url, timeout=30)
-        resposta.raise_for_status()
-    except requests.RequestException as exc:
-        log(f"ERRO ao consultar a API do SIROS: {exc}")
+    resposta = None
+    for tentativa in range(1, tentativas + 1):
+        log(f"Consultando SIROS (tentativa {tentativa}/{tentativas}): {url}")
+        try:
+            resposta = requests.get(url, timeout=60)
+            resposta.raise_for_status()
+            break
+        except requests.RequestException as exc:
+            log(f"ERRO ao consultar a API do SIROS (tentativa {tentativa}): {exc}")
+            resposta = None
+
+    if resposta is None:
+        log("ERRO: todas as tentativas de conexão com a API do SIROS falharam.")
         return []
+
+    conteudo = resposta.text
 
     try:
         dados = resposta.json()
@@ -62,7 +73,6 @@ def buscar_voos_siros(data_referencia: str) -> list:
         log("ERRO: resposta da API não é um JSON válido.")
         return []
 
-    # Caso a API retorne uma string contendo o JSON real (comum em APIs .NET/WCF)
     if isinstance(dados, str):
         try:
             dados = json.loads(dados)
@@ -71,7 +81,6 @@ def buscar_voos_siros(data_referencia: str) -> list:
             return []
 
     if isinstance(dados, dict):
-        # Algumas APIs encapsulam a lista dentro de uma chave (ex: "value", "registros")
         for chave_possivel in ("value", "registros", "voos", "data"):
             if chave_possivel in dados and isinstance(dados[chave_possivel], list):
                 return dados[chave_possivel]
@@ -85,26 +94,33 @@ def buscar_voos_siros(data_referencia: str) -> list:
     return []
 
 
+def converter_data_hora(valor: str):
+    """
+    Converte datas no formato brasileiro "dd/mm/aaaa HH:MM" (como retornado
+    pela API do SIROS) para o formato ISO 8601 exigido pelo Postgres/Supabase.
+    """
+    if not valor:
+        return None
+    try:
+        dt = datetime.strptime(valor.strip(), "%d/%m/%Y %H:%M")
+        return dt.replace(tzinfo=timezone.utc).isoformat()
+    except ValueError:
+        return None
+
+
 def normalizar_registro(registro: dict) -> dict:
     """
-    Mapeia os campos do SIROS (nomes podem variar: camelCase ou com acentos)
-    para o esquema da nossa tabela `voos`.
+    Mapeia os campos reais retornados pela API do SIROS/ANAC (confirmados via
+    execução de diagnóstico) para o esquema da nossa tabela `voos`.
     """
-
-    def pega(*chaves, default=None):
-        for chave in chaves:
-            if chave in registro and registro[chave] not in (None, ""):
-                return registro[chave]
-        return default
-
     return {
-        "numero_voo": str(pega("numeroVoo", "Número Voo", "nr_voo", default="")).strip(),
-        "companhia": pega("nomeEmpresa", "Nome Empresa", "cd_empresa_icao", "Código ICAO Empresa"),
-        "origem": pega("aeroportoOrigem", "Aeroporto Origem", "codIcaoAeroportoOrigem", "Código ICAO Aeroporto Origem"),
-        "destino": pega("aeroportoDestino", "Aeroporto Destino", "codIcaoAeroportoDestino", "Código ICAO Aeroporto Destino"),
-        "horario_previsto": pega("horarioPartida", "Horário Partida", "dataHorarioPartida"),
-        "horario_real": pega("horarioChegada", "Horário Chegada", "dataHorarioChegada"),
-        "situacao": pega("situacaoSiros", "Situação SIROS", "situacao", default="programado"),
+        "numero_voo": str(registro.get("nr_voo", "")).strip(),
+        "companhia": registro.get("sg_empresa_icao"),
+        "origem": registro.get("sg_icao_origem"),
+        "destino": registro.get("sg_icao_destino"),
+        "horario_previsto": converter_data_hora(registro.get("dt_partida_prevista_utc")),
+        "horario_real": converter_data_hora(registro.get("dt_chegada_prevista_utc")),
+        "situacao": registro.get("ds_tipo_servico", "programado"),
     }
 
 
@@ -138,7 +154,6 @@ def enviar_para_supabase(registros: list, supabase_url: str, service_key: str) -
         "apikey": service_key,
         "Authorization": f"Bearer {service_key}",
         "Content-Type": "application/json",
-        # merge-duplicates faz o upsert respeitando a CONSTRAINT UNIQUE do setup.sql
         "Prefer": "resolution=merge-duplicates,return=minimal",
     }
 
@@ -174,15 +189,10 @@ def main() -> int:
         brutos = buscar_voos_siros(data_referencia)
         total_api += len(brutos)
 
-        if brutos:
-            log(f"DEBUG — campos do primeiro registro recebido: {list(brutos[0].keys())}")
-            log(f"DEBUG — exemplo de registro completo: {json.dumps(brutos[0], ensure_ascii=False)}")
-
         normalizados = [normalizar_registro(r) for r in brutos]
         for r in normalizados:
             r["icao_aeroporto"] = icao
 
-        # Filtra apenas voos que tenham o aeroporto como origem OU destino
         filtrados = [
             r for r in normalizados
             if r.get("origem") == icao or r.get("destino") == icao
