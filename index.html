@@ -257,10 +257,18 @@
     `;
   }
 
+  function inicioDeHojeISO() {
+    const agora = new Date();
+    const inicio = new Date(Date.UTC(agora.getUTCFullYear(), agora.getUTCMonth(), agora.getUTCDate()));
+    // Volta 3h para cobrir o fuso de Brasília (UTC-3) sem cortar voos de hoje à noite/madrugada
+    inicio.setUTCHours(inicio.getUTCHours() - 3);
+    return inicio.toISOString();
+  }
+
   async function carregarVoos(icaoFiltro) {
     renderizarStatus("Carregando voos...");
 
-    let url = `${SUPABASE_URL}/rest/v1/voos?select=*&order=horario_previsto.asc&limit=100`;
+    let url = `${SUPABASE_URL}/rest/v1/voos?select=*&horario_previsto=gte.${encodeURIComponent(inicioDeHojeISO())}&order=horario_previsto.asc&limit=300`;
     if (icaoFiltro) {
       url += `&icao_aeroporto=eq.${encodeURIComponent(icaoFiltro)}`;
     }
