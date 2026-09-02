@@ -33,5 +33,5 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          AIRPORTS: "SBCA"
+          AIRPORTS: "SBCA,SBCT,SBGR,SBSP,SBGL,SBBR,SBFL,SBPA"
         run: python scripts/fetch_flights.py
